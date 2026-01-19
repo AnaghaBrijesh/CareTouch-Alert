@@ -1,0 +1,129 @@
+#include "Particle.h"
+#include <Wire.h>
+#include <math.h>
+
+// ---------------- DEFINES ----------------
+#define MPU_ADDR 0x68
+
+#define TRIG A2
+#define ECHO A3
+#define PHOTO A0
+#define LED_PIN D6
+
+// ---------------- THRESHOLDS ----------------
+const float OBSTACLE_CM = 15.0;
+const float TILT_DEG = 45.0;
+const int DARK_THRESHOLD = 600;
+
+// ---------------- MPU VARIABLES ----------------
+int16_t AcX, AcY, AcZ;
+
+// ---------------- PUBLISH TIMING ----------------
+unsigned long lastPublish = 0;
+const unsigned long PUBLISH_INTERVAL = 10000; // 10 sec
+
+// ✅ FUNCTION DECLARATIONS
+float getDistance();
+float getTilt();
+void sendAlert();
+
+// ---------------- SETUP ----------------
+void setup() {
+    Serial.begin(9600);
+
+    pinMode(TRIG, OUTPUT);
+    pinMode(ECHO, INPUT);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+
+    Wire.begin();
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x6B);
+    Wire.write(0);
+    Wire.endTransmission(true);
+
+    Particle.publish("CarePing_status", "Device Online", PRIVATE);
+}
+
+// ---------------- LOOP ----------------
+void loop() {
+    float distance = getDistance();
+    float tilt = getTilt();
+    int lightValue = analogRead(PHOTO);
+
+    Serial.print("Distance: ");
+    Serial.print(distance);
+    Serial.print(" cm | Tilt: ");
+    Serial.print(tilt);
+    Serial.print(" deg | Light: ");
+    Serial.println(lightValue);
+
+    bool alert = false;
+
+    if ((tilt > TILT_DEG) ||
+        (distance > 0 && distance < OBSTACLE_CM) ||
+        (lightValue > DARK_THRESHOLD)) {
+        alert = true;
+    }
+
+    digitalWrite(LED_PIN, alert ? HIGH : LOW);
+
+    if (alert) {
+        sendAlert();
+    }
+
+    delay(500);
+}
+
+// ---------------- FUNCTIONS ----------------
+
+float getDistance() {
+    digitalWrite(TRIG, LOW);
+    delayMicroseconds(2);
+
+    digitalWrite(TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG, LOW);
+
+    long duration = pulseIn(ECHO, HIGH);
+
+    if (duration <= 0) {
+        return -1;
+    }
+
+    float cm = (duration * 0.0343) / 2.0;
+    return cm;
+}
+
+float getTilt() {
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x3B);
+    Wire.endTransmission(false);
+
+    Wire.requestFrom(MPU_ADDR, 6, true);
+
+    if (Wire.available() >= 6) {
+        AcX = Wire.read() << 8 | Wire.read();
+        AcY = Wire.read() << 8 | Wire.read();
+        AcZ = Wire.read() << 8 | Wire.read();
+    }
+
+    float ax = AcX / 16384.0;
+    float ay = AcY / 16384.0;
+    float az = AcZ / 16384.0;
+
+    float tilt = atan2(ax, sqrt(ay * ay + az * az)) * 180.0 / PI;
+    return fabs(tilt);
+}
+
+void sendAlert() {
+    unsigned long now = millis();
+    if (now - lastPublish < PUBLISH_INTERVAL) {
+        return;
+    }
+
+    lastPublish = now;
+
+    // ✅ This event will trigger the SMS via Webhook
+    Particle.publish("send_sms", "HELP REQUIRED - CarePing Activated", PRIVATE);
+}
