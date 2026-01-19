@@ -15,5 +15,7 @@ An assistive alert device built using **Particle Argon** during the **Omega over
 ##Purpose
 Developed as a hackathon project to create an accessible and reliable emergency assistance solution.
 
-##Team / Author
-Anagha Brijesh
+##Team
+- Anagha Brijesh  
+- Yael Viju  
+- Maneesha KV  
